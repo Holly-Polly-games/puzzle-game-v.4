@@ -1,0 +1,1384 @@
+ <!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<title>Holly Polly — Змейка</title>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<style>
+  :root{
+    --page-bg:#ff4da6;
+    --field-bg:#9dce72;
+    --control-green:#2e8b57;
+    --btn-color:#fff;
+  }
+
+  html,body{height:100dvh;margin:0;overflow:hidden;background:var(--page-bg);-webkit-text-size-adjust:100%;font-family:"Futura","Trebuchet MS",Arial,sans-serif;}
+  body{display:flex;flex-direction:column;align-items:center;padding:12px;box-sizing:border-box;overscroll-behavior:none;touch-action:none;}
+
+  header{ text-align:center; margin-bottom:8px; width:100%; user-select:none; }
+  header img{ max-height:84px; display:block; margin:0 auto; }
+  header .slogan{ color:#000; margin-top:8px; font-weight:700; }
+
+  #container{ background:var(--field-bg); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,0.25); position:relative; touch-action:none; }
+
+  canvas{ display:block; image-rendering: optimizeQuality; background:transparent; border-radius:12px; -webkit-user-select:none; user-select:none; }
+
+  .overlay-start{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:60; pointer-events:auto; }
+  .overlay-start .msg{ padding:14px 18px; background:rgba(0,0,0,0.32); color:#fff; border-radius:12px; font-size:18px; text-align:center; backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
+
+  .gameover-controls{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:70; display:none; flex-direction:column; gap:14px; align-items:center; pointer-events:auto; }
+  .go-btn{ background:var(--control-green); color:var(--btn-color); border:none; padding:14px 28px; border-radius:12px; font-size:18px; cursor:pointer; box-shadow:0 6px 12px rgba(0,0,0,0.18); }
+
+  .lb-modal{ position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:120; }
+  .lb-modal[hidden]{ display:none; }
+  .lb-card{ background:#fff; border-radius:14px; width:min(540px,94vw); box-shadow:0 10px 40px rgba(0,0,0,.35); padding:12px 14px; max-height:70vh; overflow:auto; }
+  .lb-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .lb-head h3{ margin:0; font-size:18px; }
+  .lb-close{ background:#eee; border:none; border-radius:8px; padding:6px 10px; cursor:pointer; }
+  .lb-list{ margin:8px 0 0; padding:0 10px 8px; list-style:none; }
+  .lb-item{ padding:8px; border-radius:8px; display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:8px; }
+  .lb-top5{ background:#fff8d6; }
+
+  /* loading overlay minimal (only progress bar) */
+  #loadingOverlay{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:9999; background:rgba(0,0,0,0.45); }
+  #loadingBarWrap{ width:64%; max-width:420px; height:14px; background:rgba(255,255,255,0.12); border-radius:10px; overflow:hidden; }
+  #loadingProgress{ height:100%; width:0%; background:var(--control-green); transition:width .18s linear; }
+
+  @media (max-width:480px){
+    .go-btn{ font-size:16px; padding:12px 22px; }
+    #loadingBarWrap{ width:84%; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <img src="logo.png" alt="logo" decoding="async">
+    <div class="slogan">Holly Polly — твоя лучшая подруга!</div>
+  </header>
+
+  <div id="container" role="application" aria-label="Игра Змейка">
+    <canvas id="game" aria-hidden="false"></canvas>
+
+    <div id="startOverlay" class="overlay-start" style="display:none;">
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:center;">
+        <div class="msg">Тапни, чтобы начать</div>
+
+        <!-- НОВАЯ ПЛАШКА: изменения механик -->
+        <div class="msg-sub" role="note" aria-label="Изменения механик" style="padding:12px 14px;border-radius:10px;background:rgba(0,0,0,0.28);color:#fff;font-size:14px;max-width:90vw;text-align:left;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);">
+          <strong>Изменения механик:</strong>
+          <ul style="margin:8px 0 0 18px;padding:0;line-height:1.25;">
+            <li>Теперь змейка не ограничена границами поля.</li>
+            <li>Но на пути появляются дикие кустарники.</li>
+            <li>При удержании пальца на экране змейка ускоряется.</li>
+            <li>Добавлены петарды — попадание в радиус взрыва отнимает 500 очков.</li>
+          </ul>
+        </div> 
+      </div>
+    </div>
+
+    <div id="gameOverControls" class="gameover-controls">
+      <button id="btnRestart" class="go-btn">Заново</button>
+      <button id="btnShare" class="go-btn">Таблица лидеров</button>
+    </div>
+  </div>
+
+  <div id="leaderboardModal" class="lb-modal" hidden>
+    <div class="lb-card">
+      <div class="lb-head">
+        <h3>Таблица лидеров</h3>
+        <button id="lbClose" class="lb-close">✕</button>
+      </div>
+      <div id="lbLoading" style="display:none;margin-top:8px;">Загрузка...</div>
+      <ol id="lbList" class="lb-list"></ol>
+    </div>
+  </div>
+
+  <div id="loadingOverlay">
+    <div id="loadingBarWrap"><div id="loadingProgress"></div></div>
+  </div>
+
+<script>
+/* ========== CONFIG ========== */
+const LB_URL = 'https://script.google.com/macros/s/AKfycbyLbK5VoMIqjIapJDp23p1vQgHttggnXEppjWBrfk4WRbteMM8SRnKlDDtKdhFvp9ae/exec';
+
+// grid (reduced by 1 column and 1 row)
+const COLS = 11; // was 12
+const ROWS = 21; // was 22
+
+const BASE_STEP_MS = 120;
+const START_SPEED_MULT = 1.65;
+let stepDelay = Math.round(BASE_STEP_MS * START_SPEED_MULT);
+
+// reserve top-left area for score: don't place fruits there
+const RESERVED_COLS = 2; // x = 0..1
+const RESERVED_ROWS = 1; // y = 0
+
+// rendering
+let tileSize = 40, canvasW = 0, canvasH = 0;
+let DPR = 1;
+const SMOOTH_LERP = 0.14;
+
+/* ========== DOM ========== */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha:true });
+const container = document.getElementById('container');
+const startOverlay = document.getElementById('startOverlay');
+const gameOverControls = document.getElementById('gameOverControls');
+const btnRestart = document.getElementById('btnRestart');
+const btnShare = document.getElementById('btnShare');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingProgress = document.getElementById('loadingProgress');
+const lbModal = document.getElementById('leaderboardModal');
+const lbList = document.getElementById('lbList');
+const lbClose = document.getElementById('lbClose');
+const lbLoading = document.getElementById('lbLoading');
+
+/* ========== ASSETS (lowercase filenames, in repo root) ========== */
+const categoryConfig = {
+  balzam:   { prefix:'balzam',  count:8,  points:50,  w:1, h:1, weight: 1 }, // changed to h:2
+  cream:    { prefix:'cream',   count:3,  points:100, w:1, h:2, weight: 1 },
+  shampoo:  { prefix:'shampoo', count:3,  points:150, w:1, h:2, weight: 1 },
+  tip:      { prefix:'tip',     count:2,  points:200, w:1, h:2, weight: 0.35 }
+};
+const hairsprayConfig = { prefix:'hairspray', count:3, points:300, w:1, h:2 };
+
+const STATIC_ASSETS = [
+  { key:'golova', base:'golova' },
+  { key:'telo1',  base:'telo1' },
+  { key:'telo2',  base:'telo2' },
+  { key:'flower', base:'flower' },
+  { key:'kust',   base:'kust' },
+  { key:'bomba',  base:'bomba' } 
+];
+
+const ASSET_BASES = (() => {
+  const arr = STATIC_ASSETS.map(x=>x.base);
+  for (const k in categoryConfig){
+    const cfg = categoryConfig[k];
+    for (let i=1;i<=cfg.count;i++) arr.push(`${cfg.prefix}${i}`);
+  }
+  for (let i=1;i<=hairsprayConfig.count;i++) arr.push(`${hairsprayConfig.prefix}${i}`);
+  return Array.from(new Set(arr));
+})();
+
+/* ========== STATE ========== */
+let imagesByCategory = {};
+for (const k in categoryConfig) imagesByCategory[k] = [];
+let hairsprayImages = [];
+let headImg=null, bodyImg=null, tailImg=null, flowerImg=null, kustImg=null; let tintedFlowerCanvas = null; let bombaImg = null;
+
+let snake=[], dx=1, dy=0, food=null, extraFood=null, particles=[];
+let gameOver=false, timerId=null, eatenSinceSpeedup=0, totalEaten=0, scoreVar=0, globalTime=0, pendingHairspray=false;
+let scoreDisplay = 0; // плавно отображаемый счёт
+let BOMB_PULSE_FREQ = 1.0; // Hz (раз в секунду)
+let BOMB_PULSE_AMPLITUDE = 0.16; // насколько увеличивается (16%)
+let lastGrowthEaten = 0;
+let firstBoot=true, gameStarted=false;
+let spawningPaused = false; // true после Game Over — блокируем спавн до рестарта
+
+/* === Bomb mechanic === */
+let bomb = null;
+let bombTimerId = null;
+let bombExplosion = null;
+let bombNextSpawnAt = 0;  
+
+/* === Wall mechanic === */
+let walls = [];
+let wallTimerId = null;
+let wallNextSpawnAt = 0;
+let previewWalls = []; // мини-версии стен перед спавном
+let wallPreviewAt = 0; // время появления превью (performance.now())
+let wallPreviewActivateAt = 0; // время, когда превью должны активироваться в реальные стены
+let wallPreviewActivateTimeoutId = null; // legacy — мы больше не используем setTimeout(), но очищаем при нужде
+const WALL_MIN_DIST_EDGE = 1;
+const WALL_MIN_DIST_BOMB = 3;
+
+const PREVIEW_MS = 2000;       // длительность превью (ms)
+const WALL_LIFETIME_MS = 16000; // время жизни активной стены (ms)
+
+/* ========== UTIL: load with timeout + fallback webp->png ========== */
+function loadImageOnce(url, timeout=9000){
+  return new Promise((resolve, reject) => {
+    let done=false;
+    const img = new Image();
+    img.decoding = 'async';
+    img.loading = 'eager';
+    const to = setTimeout(()=>{ if(!done){ done=true; img.src=''; reject(new Error('timeout')); } }, timeout);
+    img.onload = ()=>{ if(done) return; done=true; clearTimeout(to); resolve(img); };
+    img.onerror = (e)=>{ if(done) return; done=true; clearTimeout(to); reject(new Error('error')); };
+    img.src = url;
+  });
+}
+async function tryLoadBase(basename, opts={timeout:9000, bust:false}){
+  const exts = ['.webp', '.png'];
+  for (const ext of exts){
+    const url = basename + ext + (opts.bust ? `?_ts=${Date.now()}` : '');
+    try{
+      const img = await loadImageOnce(url, opts.timeout);
+      return { ok:true, img, url };
+    } catch(e){
+      // continue
+    }
+  }
+  return { ok:false };
+}
+
+/* ========== PRELOAD: load all assets BEFORE starting game ========== */
+async function preloadAllAssets(onProgress){
+  const total = ASSET_BASES.length;
+  let loaded = 0;
+  const CONCURRENCY = 6;
+  let idx = 0;
+  const results = {};
+  const workers = new Array(CONCURRENCY).fill(0).map(async ()=>{
+    while (idx < total){
+      const i = idx++;
+      const base = ASSET_BASES[i];
+      let res = await tryLoadBase(base, { timeout:9000, bust:false });
+      if (!res.ok) res = await tryLoadBase(base, { timeout:9000, bust:true });
+      results[base] = res.ok ? res.img : null;
+      loaded++;
+      if (onProgress) onProgress(loaded, total, base, !!res.ok);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/* ========== LAYOUT / canvas ========== */
+function fitLayout(){
+  const vw = window.innerWidth;
+  const vh = Math.min(window.visualViewport?.height || window.innerHeight, document.documentElement.clientHeight || window.innerHeight);
+  const headerH = document.querySelector('header')?.getBoundingClientRect().height || 0;
+  const EXTRA_BOTTOM = 18;
+  const maxW = Math.min(vw - 32, 960);
+  const sizeByW = Math.floor(maxW / COLS);
+  const freeH = vh - headerH - EXTRA_BOTTOM;
+  const sizeByH = Math.floor(freeH / ROWS);
+  tileSize = Math.max(12, Math.min(sizeByW, sizeByH));
+}
+function resizeCanvas(){
+  fitLayout();
+  const cssW = tileSize * COLS;
+  const cssH = tileSize * ROWS;
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  container.style.width = cssW + 'px';
+  container.style.height = cssH + 'px';
+  DPR = Math.min(1.6, Math.max(1, window.devicePixelRatio || 1));
+  canvas.width = Math.round(cssW * DPR);
+  canvas.height = Math.round(cssH * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.imageSmoothingEnabled = true;
+  canvasW = cssW; canvasH = cssH;
+}
+window.addEventListener('resize', ()=>{ resizeCanvas(); });
+window.addEventListener('orientationchange', ()=>{ setTimeout(()=>resizeCanvas(),120); });
+
+/* prevent page scroll */
+window.addEventListener('touchmove', e => { e.preventDefault(); }, { passive:false });
+
+/* ========== DRAW helpers ========== */
+function drawEllipseFilled(cx, cy, rx, ry, fillStyle, alpha=1, rotation=0){
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(rotation); ctx.globalAlpha = alpha; ctx.beginPath(); ctx.ellipse(0,0,rx,ry,0,0,Math.PI*2); ctx.fillStyle = fillStyle; ctx.fill(); ctx.restore();
+}
+function computeImageDrawRect(areaLeft, areaTop, areaW, areaH){
+  const desiredW = Math.round(areaW * 2.7);
+  const allowedOverflowW = Math.min(Math.round(areaW * 0.65), Math.round(tileSize * 0.9));
+  const allowedOverflowH = Math.min(Math.round(areaH * 0.65), Math.round(tileSize * 0.9));
+  const maxAllowedW = areaW + allowedOverflowW;
+  const maxAllowedH = areaH + allowedOverflowH;
+  let drawW = Math.min(desiredW, maxAllowedW);
+  let drawH = Math.min(desiredW, maxAllowedH);
+  return { drawW, drawH, areaLeft, areaTop, areaW, areaH, maxAllowedW, maxAllowedH };
+}
+
+/* flowers small */
+let flowerCells = [];
+function generateFlowerCells(){
+  const total = COLS*ROWS;
+  const desired = Math.max(1, Math.round(total * 0.125));
+  const set = new Set();
+  let i = 0;
+  while (set.size < desired && i < total * 8){
+    const rx = Math.floor(((Math.sin(i*777 + 13) + 1)/2) * COLS);
+    const ry = Math.floor(((Math.cos(i*131 + 7) + 1)/2) * ROWS);
+    set.add(`${Math.max(0,Math.min(COLS-1,rx))},${Math.max(0,Math.min(ROWS-1,ry))}`);
+    i++;
+  }
+  return Array.from(set).map(s => s.split(',').map(Number));
+}
+
+// Создать титрованную версию flowerImg одного цвета (кэшируется)
+function createTintedFlower(color) {
+  if (!flowerImg || !flowerImg.complete || !flowerImg.naturalWidth) return null;
+  // размер исходного изображения
+  const sw = flowerImg.naturalWidth;
+  const sh = flowerImg.naturalHeight;
+  const c = document.createElement('canvas');
+  c.width = sw;
+  c.height = sh;
+  const g = c.getContext('2d');
+
+  // рисуем оригинал
+  g.drawImage(flowerImg, 0, 0, sw, sh);
+
+  // заливаем цветом поверх, сохраняя форму пикселей через source-atop
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = color;
+  g.fillRect(0, 0, sw, sh);
+
+  // вернуть composite в норму
+  g.globalCompositeOperation = 'source-over';
+
+  return c;
+}
+
+function drawFlowers(){
+  if (!flowerImg || !flowerImg.complete || !flowerImg.naturalWidth) return;
+
+  // лениво создаём и кэшируем титрованную версию (если ещё не создана)
+  if (!tintedFlowerCanvas) {
+    // желаемый цвет — тут меняй на любой шестнадцатеричный код
+    tintedFlowerCanvas = createTintedFlower('#bfe66a');
+    // если по какой-то причине не получилось — оставляем оригинал
+    if (!tintedFlowerCanvas) tintedFlowerCanvas = flowerImg;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.95; // чуть плотнее, можно поменять
+  const size = Math.max(6, Math.floor(tileSize * 0.6));
+
+  for (const [cxCell, cyCell] of flowerCells){
+    const cx = (cxCell + 0.5) * tileSize;
+    const cy = (cyCell + 0.5) * tileSize;
+
+    // масштабируем титрованную картинку под размер клетки
+    const img = tintedFlowerCanvas;
+    // вычисляем отрисовку так же, как раньше — по центру
+    const drawX = Math.round(cx - size/2);
+    const drawY = Math.round(cy - size/2);
+    ctx.drawImage(img, drawX, drawY, size, size);
+  }
+
+  ctx.restore();
+}
+
+/* ========== FOOD drawing (hairspray vertical) ========== */
+function drawSingleFood(it, nowSec){
+  if (!it) return;
+  const areaW = tileSize * it.w, areaH = tileSize * it.h;
+  const areaLeft = it.x * tileSize, areaTop = it.y * tileSize;
+
+  if (it.cat === 'hairspray'){
+    const pulse = 1 + 0.24 * Math.sin(nowSec * 4 + it.x * 1.7 + it.y * 0.9);
+    const cx = Math.round(areaLeft + areaW/2);
+    const cy = Math.round(areaTop + areaH/2);
+    const base = Math.min(areaW, areaH);
+    const ry = Math.max(12, Math.round((base/1.8 + 16) * pulse));
+    const rx = Math.max(7, Math.round((base/3.2 + 6) * pulse));
+    drawEllipseFilled(cx, cy, rx, ry, 'rgba(255,235,0,0.98)', 0.98);
+  }
+
+  if (it.img && it.img.complete && it.img.naturalWidth){
+    const c = computeImageDrawRect(areaLeft, areaTop, areaW, areaH);
+    const iw = it.img.naturalWidth, ih = it.img.naturalHeight, aspect = iw/ih;
+    let drawW = c.drawW, drawH = Math.round(drawW / aspect);
+    if (drawH > c.maxAllowedH){ drawH = c.maxAllowedH; drawW = Math.round(drawH * aspect); }
+    const drawX = Math.round(areaLeft + (areaW - drawW)/2), drawY = Math.round(areaTop + (areaH - drawH)/2);
+    ctx.drawImage(it.img, drawX, drawY, drawW, drawH);
+  } else {
+    const dx = Math.round(areaLeft + areaW/4), dy = Math.round(areaTop + areaH/4);
+    ctx.fillStyle = '#ff6b6b'; ctx.fillRect(dx, dy, Math.round(areaW/2), Math.round(areaH/2));
+  }
+}
+function drawFood(nowSec){ drawSingleFood(food, nowSec); if (extraFood) drawSingleFood(extraFood, nowSec); }
+
+/* ========== SNAKE drawing with rotation for body parts ========== */
+function drawSnake(){
+  for (let i=0;i<snake.length;i++){
+    const s = snake[i];
+    const tx = s.x * tileSize + tileSize/2, ty = s.y * tileSize + tileSize/2;
+    s.px = lerp(s.px, tx, SMOOTH_LERP); s.py = lerp(s.py, ty, SMOOTH_LERP);
+  }
+
+  for (let i=1;i<snake.length;i++){
+    const s = snake[i], size = Math.max(6, Math.floor(tileSize * 1.06));
+    if (i === snake.length - 1){
+      if (tailImg && tailImg.complete && tailImg.naturalWidth){
+        const tail = snake[snake.length - 1], prev = snake[snake.length - 2];
+        const angle = Math.atan2(prev.py - tail.py, prev.px - tail.px);
+        ctx.save(); ctx.translate(tail.px, tail.py); ctx.rotate(angle + Math.PI/2);
+        let iw = tailImg.naturalWidth, ih = tailImg.naturalHeight, aspect = iw/ih; let dw=size, dh=size;
+        if (dw/dh>aspect) dw = Math.round(dh*aspect); else dh = Math.round(dw/aspect);
+        ctx.drawImage(tailImg, -dw/2, -dh/2, dw, dh); ctx.restore();
+      } else { ctx.fillStyle='#E159A9'; ctx.beginPath(); ctx.arc(s.px, s.py, Math.max(4, Math.floor(tileSize/2 - 2)), 0, Math.PI*2); ctx.fill(); }
+    } else {
+      if (bodyImg && bodyImg.complete && bodyImg.naturalWidth){
+        const prev = snake[i-1], next = snake[i+1] || snake[i];
+        const angle = Math.atan2(next.py - prev.py, next.px - prev.px);
+        ctx.save(); ctx.translate(s.px, s.py); ctx.rotate(angle + Math.PI/2);
+        let iw = bodyImg.naturalWidth, ih = bodyImg.naturalHeight, aspect = iw/ih; let dw=size, dh=size;
+        if (dw/dh>aspect) dw = Math.round(dh*aspect); else dh = Math.round(dw/aspect);
+        ctx.drawImage(bodyImg, -dw/2, -dh/2, dw, dh); ctx.restore();
+      } else { ctx.fillStyle='#E159A9'; ctx.beginPath(); ctx.arc(s.px, s.py, Math.max(4, Math.floor(tileSize/2 - 2)), 0, Math.PI*2); ctx.fill(); }
+    }
+  }
+
+  // head
+  const head = snake[0], hx=head.px, hy=head.py;
+  const headScale = 1.42, headSizeBase = Math.max(6, Math.floor(tileSize * headScale));
+  if (headImg && headImg.complete && headImg.naturalWidth){
+    const dirAngle = Math.atan2(dy, dx);
+    ctx.save(); ctx.translate(hx, hy); ctx.rotate(dirAngle + Math.PI/2);
+    let iw = headImg.naturalWidth, ih = headImg.naturalHeight, aspect = iw/ih; let dw=headSizeBase, dh=headSizeBase;
+    if (dw/dh>aspect) dw = Math.round(dh*aspect); else dh = Math.round(dw/aspect);
+    ctx.drawImage(headImg, -dw/2, -dh/2, dw, dh); ctx.restore();
+  } else {
+    ctx.fillStyle='#E159A9'; ctx.beginPath(); ctx.arc(hx, hy, Math.max(4, Math.floor(tileSize/2 - 2)), 0, Math.PI*2); ctx.fill();
+    const eyeR = Math.max(2, Math.floor(tileSize/6)); const ex = tileSize/4, ey = tileSize/6;
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(hx-ex, hy-ey, eyeR, 0, Math.PI*2); ctx.arc(hx+ex, hy-ey, eyeR, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(hx-ex, hy-ey, Math.max(1, Math.floor(eyeR/2)), 0, Math.PI*2); ctx.arc(hx+ex, hy-ey, Math.max(1, Math.floor(eyeR/2)), 0, Math.PI*2); ctx.fill();
+  }
+}
+
+/* ========== Particles (slower / longer) ========== */
+function spawnParticlesAt(cellX, cellY, cellsW, cellsH, cat){
+  const cx = (cellX + cellsW/2) * tileSize;
+  const cy = (cellY + cellsH/2) * tileSize;
+  const char = (cat === 'hairspray') ? '⭐️' : '❤️';
+  const SLOW_MULT = 0.32;
+  const LIFE_BASE = 48, LIFE_RAND = 48, LIFE_FACTOR = 1.6;
+  const count = Math.max(3, Math.min(6, Math.floor(12 * 0.8)));
+  for (let i=0;i<count;i++){
+    const angle = Math.random() * Math.PI * 2;
+    const baseSpeed = 0.5 + Math.random() * 1.0;
+    const vyBias = (cat === 'hairspray') ? -0.35 - Math.random()*0.15 : (Math.random()*0.3 - 0.15);
+    const life = Math.round((LIFE_BASE + Math.floor(Math.random()*LIFE_RAND)) * LIFE_FACTOR);
+    const size = tileSize * (0.45 + Math.random() * 0.6);
+    const vx = Math.cos(angle) * baseSpeed * (0.5 + Math.random()*0.7) * SLOW_MULT;
+    const vy = (Math.sin(angle) * baseSpeed * (0.5 + Math.random()*0.7) + vyBias) * SLOW_MULT;
+    particles.push({ type:'emoji', char, x: cx + (Math.random()-0.5) * tileSize * 0.2, y: cy + (Math.random()-0.5) * tileSize * 0.2, vx, vy, size, life, maxLife: life });
+  }
+}
+function updateParticles(){
+  for (let i=particles.length-1;i>=0;i--){
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.994; p.vy += 0.006;
+    p.life--;
+    if (p.life <= 0 || p.x < -50 || p.x > canvasW + 50 || p.y < -50 || p.y > canvasH + 50) particles.splice(i,1);
+  }
+}
+function drawParticles(){
+  if (!particles.length) return;
+  ctx.save();
+  for (let i=particles.length-1;i>=0;i--){
+    const p = particles[i];
+    if (p.type === 'emoji'){
+      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.font = `${Math.max(8, Math.floor(p.size))}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji", serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(p.char, Math.round(p.x), Math.round(p.y));
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = p.color || '#fff'; ctx.beginPath(); ctx.arc(Math.round(p.x), Math.round(p.y), p.r, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+    }
+  }
+  ctx.restore();
+}
+
+/* ========== Score (animated value, no pulse) ========== */
+function drawScore() {
+  ctx.save();
+  // фиксированное позиционирование — чтобы не "подскакивало"
+  ctx.font = `${Math.max(14, Math.floor(tileSize * 0.7))}px Futura, Arial, sans-serif`;
+  ctx.fillStyle = '#000';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  // используем scoreDisplay (плавно догоняет scoreVar)
+  ctx.fillText('Счёт: ' + Math.round(scoreDisplay), Math.max(6, tileSize*0.15), Math.max(6, tileSize*0.12));
+  ctx.restore();
+}
+
+function drawBomb(nowSec) {
+  // рисуем саму бомбу (если она ещё на поле)
+  if (bomb) {
+    const cx = (bomb.x + 0.5) * tileSize;
+    const cy = (bomb.y + 0.5) * tileSize;
+
+    // 1 Hz пульсация: синус, диапазон [1 - amp/2, 1 + amp/2]
+    const pulse = Math.sin(globalTime * Math.PI * 2 * BOMB_PULSE_FREQ); // -1..1
+    const scale = 1 + BOMB_PULSE_AMPLITUDE * (0.5 + 0.5 * pulse); // 1 .. 1+amplitude
+
+    // базовый размер бомбы — чуть меньше клетки
+    const base = Math.round(tileSize * 1.6); // <- заменил бессмысленный Math.max(...)
+
+    if (bombaImg && bombaImg.complete && bombaImg.naturalWidth) {
+      let iw = bombaImg.naturalWidth, ih = bombaImg.naturalHeight, aspect = iw/ih;
+      let dw = base, dh = base;
+      if (dw / dh > aspect) dw = Math.round(dh * aspect); else dh = Math.round(dw / aspect);
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+      ctx.drawImage(bombaImg, -dw/2, -dh/2, dw, dh);
+      ctx.restore();
+    } else {
+      // fallback — если по какой-то причине картинка не загрузилась
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+      ctx.font = `${Math.round(tileSize * 0.8)}px "Segoe UI Emoji"`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('💣', 0, 0);
+      ctx.restore();
+    }
+
+    // таймер взрыва — как было у тебя
+    const tLeft = bomb.explodeAt - performance.now();
+    if (tLeft <= 0) triggerExplosion();
+  }
+
+  // визуализация взрыва (если есть bombExplosion) — простой градиентный круг
+  if (bombExplosion) {
+    const elapsed = performance.now() - bombExplosion.createdAt;
+    const duration = 800;
+    const alpha = Math.max(0, 1 - elapsed / duration);
+    if (alpha <= 0) {
+      bombExplosion = null;
+      return;
+    }
+
+    const { x, y, radius } = bombExplosion;
+    const cx2 = (x + 0.5) * tileSize;
+    const cy2 = (y + 0.5) * tileSize;
+    const pxRadius = radius * tileSize * (1.2 + 0.6 * (elapsed / duration));
+
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.9;
+    const grad2 = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, pxRadius);
+    grad2.addColorStop(0, 'rgba(255,220,120,0.95)');
+    grad2.addColorStop(0.45, 'rgba(255,120,40,0.6)');
+    grad2.addColorStop(1, 'rgba(255,40,0,0)');
+    ctx.fillStyle = grad2;
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, pxRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ========== Render loop ========== */
+function renderLoop(ts){
+  globalTime = ts / 1000;
+// плавное движение счёта (без пульса)
+scoreDisplay = lerp(scoreDisplay, scoreVar, 0.15);
+  if (extraFood && performance.now() > extraFood.expiresAt) extraFood = null;
+  ctx.clearRect(0,0,canvasW,canvasH);
+  drawFlowers();
+  drawFood(globalTime);
+  drawBomb(globalTime);
+  drawWalls();
+  drawSnake();
+  drawParticles();
+  drawScore();
+  updateParticles();
+  if (!spawningPaused && !bomb && performance.now() > bombNextSpawnAt) {
+  spawnBomb();
+}
+
+  // если вдруг нет плода на поле — создаём (защита от ситуаций, когда food==null)
+  if (!spawningPaused && !food) {
+    placeFood();
+  }
+
+// SPAWN / PREVIEW / ACTIVATE logic
+if (!spawningPaused) {
+  const now = performance.now();
+
+  // если пришло время создать превью (и сейчас нет ни активных стен, ни превью) — делаем spawn
+  if (!previewWalls.length && !walls.length && now >= wallNextSpawnAt) {
+    spawnWalls();
+  }
+
+  // если есть превью и пора активировать — делаем это
+  activatePreviewIfNeeded();
+
+  // удаляем устаревшие стены и (при необходимости) планируем следующий спавн
+  clearExpiredWalls();
+}
+
+   if (!spawningPaused) clearExpiredWalls();
+  // планируем следующий кадр отрисовки
+  requestAnimationFrame(renderLoop);
+}
+
+/* ========== Utilities ========== */
+function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+
+function scheduleNextWallSpawn(delayMs) {
+  const now = performance.now();
+  const delay = Math.max(0, delayMs || randInt(7000, 10000));
+  wallNextSpawnAt = now + delay;
+  console.log('scheduleNextWallSpawn(): next in ms=', Math.round(delay), 'at', Math.round(wallNextSpawnAt));
+}
+
+function pointOnSnake(x,y){ return snake.some(s => s.x===x && s.y===y); }
+
+function rectFree(x,y,w,h){
+  if (x<0 || y<0 || x+w>COLS || y+h>ROWS) return false;
+  // reserved area for score (don't spawn fruits overlapping it)
+  for (let sx=x; sx<x+w; sx++){
+    for (let sy=y; sy<y+h; sy++){
+      if (sx < RESERVED_COLS && sy < RESERVED_ROWS) return false;
+      if (pointOnSnake(sx,sy)) return false;
+      if (cellBlocked(sx, sy)) return false;
+    }
+  }
+  return true;
+}
+
+// Полная версия исправленного блока
+function cellBlocked(x, y) {
+  // змейка
+  if (snake.some(s => s.x === x && s.y === y)) return true;
+
+  // обычная еда
+  if (food && x >= food.x && x < food.x + food.w && y >= food.y && y < food.y + food.h) return true;
+
+  // лак
+  if (extraFood && x >= extraFood.x && x < extraFood.x + extraFood.w && y >= extraFood.y && y < extraFood.y + extraFood.h) return true;
+
+  // бомба
+  if (bomb && x === bomb.x && y === bomb.y) return true;
+
+  // стены
+  if (walls.some(w => w.cells.some(([wx, wy]) => wx === x && wy === y))) return true;
+
+  // превью стен
+  if (previewWalls.some(w => w.cells.some(([wx, wy]) => wx === x && wy === y))) return true;
+
+  return false;
+}
+
+// ✅ проверка радиуса
+function cellBlockedAround(x, y, radius) {
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      if (cellBlocked(x + dx, y + dy)) return true;
+    }
+  }
+  return false;
+}
+
+function lerp(a,b,t){ return a + (b-a) * t; }
+
+function chooseCategory(){
+  const keys = Object.keys(categoryConfig);
+  const pool = [];
+  for(const k of keys){
+    const w = categoryConfig[k].weight;
+    for(let i=0;i<Math.max(1,Math.round(w*10));i++) pool.push(k);
+  }
+  return pool[randInt(0,pool.length-1)];
+}
+
+/* ========== Food placement ========== */
+function placeFood(){
+    if (spawningPaused || gameOver) return;
+  const maxAttempts = 1000; let attempts=0; food=null;
+  while(attempts++ < maxAttempts){
+    const cat = chooseCategory(); const cfg = categoryConfig[cat];
+    const w = cfg.w, h = cfg.h; const x = randInt(0, COLS - w); const y = randInt(0, ROWS - h);
+   if (cellBlockedAround(x, y, 1)) continue;
+    if (!rectFree(x,y,w,h)) continue;
+    const imgs = imagesByCategory[cat] || []; const img = imgs.length ? imgs[randInt(0, imgs.length-1)] : null;
+    food = { x, y, cat, img, points: cfg.points, w, h };
+    break;
+  }
+  if (!food){
+    outer: for (let yy=0; yy<ROWS; yy++) for (let xx=0; xx<COLS; xx++) if (!pointOnSnake(xx,yy) && rectFree(xx,yy,1,1)){ const imgs = imagesByCategory['balzam']||[]; food={ x:xx,y:yy,cat:'balzam',img:imgs[0]||null,points:50,w:1,h:2 }; break outer; }
+  }
+
+  if (pendingHairspray){
+    const wH = hairsprayConfig.w, hH = hairsprayConfig.h; let placed=false, attempts2=0;
+    while(attempts2++<800 && !placed){
+      const x = randInt(0, COLS-wH); const y = randInt(0, ROWS-hH);
+      if (!rectFree(x,y,wH,hH)) continue;
+      if (!(x + wH <= food.x || x >= food.x + food.w || y + hH <= food.y || y >= food.y + food.h)) continue;
+      const img = hairsprayImages.length ? hairsprayImages[randInt(0, hairsprayImages.length-1)] : null;
+      extraFood = { x, y, cat:'hairspray', img, points: hairsprayConfig.points, w: wH, h: hH, expiresAt: performance.now() + 3000 };
+      placed = true;
+    }
+    pendingHairspray = false;
+  }
+}
+
+/* ========== BOMB logic ========== */
+
+function cellOccupied(x, y) {
+  // змейка
+  if (snake.some(s => s.x === x && s.y === y)) return true;
+
+  // еда
+  if (food && x >= food.x && x < food.x + food.w && y >= food.y && y < food.y + food.h) return true;
+  if (extraFood && x >= extraFood.x && x < extraFood.x + extraFood.w && y >= extraFood.y && y < extraFood.y + extraFood.h) return true;
+
+  // бомба
+  if (bomb && x === bomb.x && y === bomb.y) return true;
+
+  // стены (активные)
+  if (walls.some(w => w.cells.some(([wx, wy]) => wx === x && wy === y))) return true;
+
+  // превью стен
+  if (previewWalls.some(w => w.cells.some(([wx, wy]) => wx === x && wy === y))) return true;
+
+  return false;
+}
+
+
+// Проверяет, свободно ли место для бомбы (не в змейке и не у края)
+function canPlaceBomb(x, y) {
+  if (x < 2 || y < 2 || x >= COLS - 2 || y >= ROWS - 2) return false;
+  if (snake.some(s => s.x === x && s.y === y)) return false;
+  if (food && x >= food.x && x < food.x + food.w && y >= food.y && y < food.y + food.h) return false;
+  if (extraFood && x >= extraFood.x && x < extraFood.x + extraFood.w && y >= extraFood.y && y < extraFood.y + extraFood.h) return false;
+  return true;
+}
+
+function spawnBomb() {
+    if (spawningPaused || gameOver) return; // не спавним, если игра окончена
+  let tries = 0;
+  let bx = null, by = null;
+  while (tries++ < 400) {
+    const x = randInt(2, COLS - 3);
+    const y = randInt(2, ROWS - 3);
+    if (cellBlockedAround(x, y, 3)) continue;
+if (x < 2 || y < 2 || x >= COLS - 2 || y >= ROWS - 2) continue;
+    if (canPlaceBomb(x, y)) {
+      if (cellBlocked(x, y)) return false;
+      bx = x; by = y;
+      break;
+    }
+  }
+  if (bx === null) return;
+  bomb = { x: bx, y: by, bornAt: performance.now(), explodeAt: performance.now() + 6000 };
+  console.log('💣 Bomb spawned at', bx, by);
+}
+
+// радиус взрыва (все клетки в радиусе)
+function getExplosionCells(cx, cy) {
+  const cells = [];
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      const dist = Math.abs(dx) + Math.abs(dy);
+      if (dist > 3) continue; // срезаем углы
+      const nx = cx + dx, ny = cy + dy;
+      if (nx >= 0 && ny >= 0 && nx < COLS && ny < ROWS) {
+        cells.push([nx, ny]);
+      }
+    }
+  }
+  return cells;
+}
+
+function triggerExplosion() {
+  if (!bomb) return;
+
+  const radius = 2.5; // радиус взрыва в клетках (логика попадания)
+  const now = performance.now();
+
+  // визуал
+  bombExplosion = {
+    x: bomb.x,
+    y: bomb.y,
+    radius,
+    createdAt: now
+  };
+
+  console.log('💥 Explosion triggered at', bomb.x, bomb.y);
+
+  // проверим — попала ли змейка в радиус
+  let hit = false;
+  for (const s of snake) {
+    const dx = s.x - bomb.x;
+    const dy = s.y - bomb.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist <= radius) { hit = true; break; }
+  }
+
+  if (hit) {
+    scoreVar = Math.max(0, scoreVar - 500);
+
+    // если после -500 счёт стал 0 — считаем это смертельным и вызываем GameOver
+    if (scoreVar === 0) {
+      // небольшой таймаут, чтобы визуал взрыва успел показаться
+      setTimeout(() => {
+        onGameOver();
+      }, 120);
+    } else {
+      // иначе просто отрезаем пару сегментов (как раньше)
+      for (let i = 0; i < 2 && snake.length > 3; i++) snake.pop();
+    }
+  }
+
+  // удаляем бомбу и планируем следующую
+  bomb = null;
+  bombNextSpawnAt = now + randInt(5000, 9000);
+}
+
+/* ========== WALLS logic ========== */
+
+// Проверка, можно ли поставить стену в этом месте
+function canPlaceWallCell(x, y) {
+  // отступ от краёв поля
+  if (x < WALL_MIN_DIST_EDGE || y < WALL_MIN_DIST_EDGE ||
+      x >= COLS - WALL_MIN_DIST_EDGE || y >= ROWS - WALL_MIN_DIST_EDGE)
+    return false;
+
+  // клетка уже занята чем-то
+  if (cellOccupied(x, y)) return false;
+
+  // минимум 1 клетка между стенами (по Манхэттену и по диагонали)
+  if (walls.some(w => w.cells.some(([wx, wy]) => Math.abs(wx - x) <= 1 && Math.abs(wy - y) <= 1))) return false;
+  if (previewWalls.some(w => w.cells.some(([wx, wy]) => Math.abs(wx - x) <= 1 && Math.abs(wy - y) <= 1))) return false;
+
+  // между стеной и бомбой минимум 3 клетки (Манхэттен)
+  if (bomb && Math.abs(x - bomb.x) + Math.abs(y - bomb.y) < WALL_MIN_DIST_BOMB) return false;
+
+  return true;
+}
+
+// options: { preview: boolean }
+// возвращает { cells, bornAt, expiresAt } или null
+function createSingleWall(options = {}) {
+  const preview = !!options.preview;
+  const maxAttempts = 500; // увеличим попытки — чтобы на плотных полях находило лучше
+  const lengthRand = Math.random();
+  let length = 3;
+  if (lengthRand < 0.25) length = 3;
+  else if (lengthRand < 0.5) length = 4;
+  else if (lengthRand < 0.75) length = 5;
+  else length = 6;
+  const orientation = Math.random() < 0.5 ? 'horizontal' : 'vertical';
+
+  // корректные границы: x от WALL_MIN_DIST_EDGE до (COLS - WALL_MIN_DIST_EDGE - length)
+  const maxX = COLS - WALL_MIN_DIST_EDGE - (orientation === 'horizontal' ? length : 1);
+  const maxY = ROWS - WALL_MIN_DIST_EDGE - (orientation === 'vertical' ? length : 1);
+  if (maxX < WALL_MIN_DIST_EDGE || maxY < WALL_MIN_DIST_EDGE) return null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const x = randInt(WALL_MIN_DIST_EDGE, maxX);
+    const y = randInt(WALL_MIN_DIST_EDGE, maxY);
+
+    const cells = [];
+    let valid = true;
+
+    for (let i = 0; i < length; i++) {
+      const cx = orientation === 'horizontal' ? x + i : x;
+      const cy = orientation === 'vertical' ? y + i : y;
+
+      // базовые проверки всегда: в поле и не на змею/еда/бомба
+      if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) { valid = false; break; }
+      if (snake.some(s => s.x === cx && s.y === cy)) { valid = false; break; }
+      if (food && cx >= food.x && cx < food.x + food.w && cy >= food.y && cy < food.y + food.h) { valid = false; break; }
+      if (extraFood && cx >= extraFood.x && cx < extraFood.x + extraFood.w && cy >= extraFood.y && cy < extraFood.y + extraFood.h) { valid = false; break; }
+      if (bomb && cx === bomb.x && cy === bomb.y) { valid = false; break; }
+
+      // расстояние до бомбы
+      if (bomb && Math.abs(cx - bomb.x) + Math.abs(cy - bomb.y) < WALL_MIN_DIST_BOMB) { valid = false; break; }
+
+      // если это НЕ превью — применяем строгие правила (никаких стен в окрестности)
+      if (!preview) {
+        if (cellBlockedAround(cx, cy, 1)) { valid = false; break; }
+        // нельзя размещать рядом с уже существующими стенами/превью (1 клетка в манхэттен+диагональ)
+        if (walls.some(w => w.cells.some(([wx, wy]) => Math.abs(wx - cx) <= 1 && Math.abs(wy - cy) <= 1))) { valid = false; break; }
+        if (previewWalls.some(w => w.cells.some(([wx, wy]) => Math.abs(wx - cx) <= 1 && Math.abs(wy - cy) <= 1))) { valid = false; break; }
+      } else {
+        // для превью допускаем чуть более мягкие условия, но всё ещё не перекрываем змею/еду
+        if (cellBlocked(cx, cy)) { valid = false; break; }
+      }
+
+      cells.push([cx, cy]);
+    }
+
+    if (valid && cells.length === length) {
+      const now = performance.now();
+      return { cells, bornAt: now, expiresAt: now + WALL_LIFETIME_MS }; // expiresAt для активных стен
+    }
+  }
+
+  return null;
+}
+
+function activatePreviewIfNeeded() {
+  if (!previewWalls.length) return;
+  const now = performance.now();
+  if (now < wallPreviewActivateAt) return;
+
+  // превращаем превью в реальные стены (и даём им expiresAt = now + WALL_LIFETIME_MS)
+  const activated = previewWalls.map(w => ({ ...w, bornAt: now, expiresAt: now + WALL_LIFETIME_MS }));
+  walls.push(...activated);
+  previewWalls = [];
+  wallPreviewAt = 0;
+  wallPreviewActivateAt = 0;
+  console.log('activatePreviewIfNeeded(): activated', activated.length, 'walls at', now);
+}
+
+function spawnWalls() {
+  if (spawningPaused || gameOver) return;
+
+  // отменим старые таймеры/превью
+  if (wallPreviewActivateTimeoutId) {
+    clearTimeout(wallPreviewActivateTimeoutId);
+    wallPreviewActivateTimeoutId = null;
+  }
+
+  previewWalls = [];
+  wallPreviewAt = performance.now();
+
+  // helper — проверка: новая стена не должна быть ближе чем в 1 клетку к уже выбранным previewWalls
+  function isTooCloseToExistingPreview(newWallCells) {
+    for (const existing of previewWalls) {
+      for (const [ex, ey] of existing.cells) {
+        for (const [nx, ny] of newWallCells) {
+          if (Math.abs(ex - nx) <= 1 && Math.abs(ey - ny) <= 1) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Попытка создать 3..5 превью-стен (в режиме preview)
+  const requestedCount = randInt(3, 5);
+  const MAX_TRIES_PER_WALL = 250;
+  for (let i = 0; i < requestedCount; i++) {
+    let wall = null;
+    // пробуем создать стену несколько раз, если пересекается с уже выбранными превью
+    for (let t = 0; t < MAX_TRIES_PER_WALL; t++) {
+      const candidate = createSingleWall({ preview: true });
+      if (!candidate) continue;
+      if (isTooCloseToExistingPreview(candidate.cells)) continue; // слишком близко — попробуем ещё
+      wall = candidate;
+      break;
+    }
+    if (wall) previewWalls.push(wall);
+  }
+
+  // Если не удалось создать ни одной — не ставим превью и планируем следующий спавн через небольшой интервал
+  if (!previewWalls.length) {
+    console.log('spawnWalls(): no preview walls found — reschedule sooner');
+    scheduleNextWallSpawn(randInt(3000, 6000)); // попробуем чуть позже
+    return;
+  }
+
+  // устанавливаем время активации превью (через PREVIEW_MS)
+  wallPreviewActivateAt = wallPreviewAt + PREVIEW_MS;
+
+  // планируем следующий spawn заранее: через PREVIEW_MS + WALL_LIFETIME_MS + gap(7-10s)
+  const now = performance.now();
+  wallNextSpawnAt = now + PREVIEW_MS + WALL_LIFETIME_MS + randInt(7000, 10000);
+  console.log('spawnWalls(): previewCount=', previewWalls.length, ' will activate at', wallPreviewActivateAt, ' next spawn at ', wallNextSpawnAt);
+}
+
+function clearExpiredWalls() {
+  const now = performance.now();
+
+  // удаляем устаревшие реальные стены
+  if (walls.length) {
+    walls = walls.filter(w => now < w.expiresAt);
+  }
+
+  // если нет ни активных стен, ни превью — гарантируем, что следующий спавн запланирован
+  const alive = walls.length > 0 || previewWalls.length > 0;
+  if (!alive && (!wallNextSpawnAt || wallNextSpawnAt <= now)) {
+    // если следующая дата ещё не задана или уже прошла — назначаем заново
+    scheduleNextWallSpawn(randInt(7000, 10000));
+  }
+}
+
+// Отрисовка стен
+function drawWalls() {
+  // мини-версии (предпросмотр)
+  if (previewWalls.length && kustImg) {
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    for (const wall of previewWalls) {
+      for (const [wx, wy] of wall.cells) {
+        const cx = wx * tileSize;
+        const cy = wy * tileSize;
+        const scale = 0.5; // 50% размера
+        const size = tileSize * scale;
+        const offset = (tileSize - size) / 2;
+        ctx.drawImage(kustImg, cx + offset, cy + offset, size, size);
+      }
+    }
+    ctx.restore();
+  }
+
+  // реальные стены
+  if (!walls.length || !kustImg) return;
+  for (const wall of walls) {
+    for (const [wx, wy] of wall.cells) {
+      const cx = wx * tileSize;
+      const cy = wy * tileSize;
+      ctx.drawImage(kustImg, cx, cy, tileSize*1.1, tileSize*1.1);
+    }
+  }
+}
+
+/* ========== Segments ========== */
+function createSegment(x,y){ return { x, y, px: x*tileSize + tileSize/2, py: y*tileSize + tileSize/2 }; }
+
+/* ========== Init / restart ========== */
+function initGame(showOverlay=true){
+  // отменяем и очищаем все отложенные таймауты / планировщики
+  if (wallPreviewActivateTimeoutId) {
+    clearTimeout(wallPreviewActivateTimeoutId);
+    wallPreviewActivateTimeoutId = null;
+  }
+  if (bombTimerId) {
+    clearTimeout(bombTimerId);
+    bombTimerId = null;
+  }
+  if (timerId) {
+    clearTimeout(timerId);
+    timerId = null;
+  }
+
+  // разрешаем спавн (новая игра) и очищаем объекты поля
+  spawningPaused = false;
+  previewWalls = [];
+  walls = [];
+
+  // --- базовый визуальный / игровой ресет ---
+  resizeCanvas();
+  flowerCells = generateFlowerCells();
+
+  // центрируем змейку
+  const cx = Math.floor(COLS/2), cy = Math.floor(ROWS/2);
+  snake = [ createSegment(cx,cy), createSegment(cx-1,cy), createSegment(cx-2,cy) ];
+  dx = 1; dy = 0;
+
+  // стартовая скорость: возвращаем стартовый множитель (меньше => медленнее)
+  stepDelay = Math.round(BASE_STEP_MS * START_SPEED_MULT);
+
+  // сброс игрового стейта
+  food = null;
+  extraFood = null;
+  pendingHairspray = false;
+  particles = [];
+  gameOver = false;
+  eatenSinceSpeedup = 0;
+  totalEaten = 0;
+  scoreVar = 0;
+  scoreDisplay = 0;
+  lastGrowthEaten = 0;
+  gameStarted = false;
+
+  // планируем первое появление бомбы/стен (как раньше)
+  bomb = null;
+  bombExplosion = null;
+  bombNextSpawnAt = performance.now() + randInt(5000, 9000);
+ scheduleNextWallSpawn(randInt(7000, 10000));
+
+  // при первом запуске показываем overlay, иначе скрываем
+  if (firstBoot && showOverlay) {
+    startOverlay.style.display = 'flex';
+  } else {
+    startOverlay.style.display = 'none';
+  }
+
+  gameOverControls.style.display = 'none';
+
+  // Отменяем предыдущий шаг если был
+  if (timerId) { clearTimeout(timerId); timerId = null; }
+
+  placeFood();
+  // рисуем/запускаем рендер-цикл
+  requestAnimationFrame(renderLoop);
+}
+
+/* ========== Step logic ========== */
+function willCollide(nx, ny){
+   // голова появится с противоположной стороны
+  if (nx < 0) nx = COLS - 1;
+  else if (nx >= COLS) nx = 0;
+  if (ny < 0) ny = ROWS - 1;
+  else if (ny >= ROWS) ny = 0;
+  // проверяем тело
+  for (let i=1;i<snake.length;i++)
+    if (snake[i].x===nx && snake[i].y===ny) return true;
+  nextWrapX = nx;
+  nextWrapY = ny;
+  return false;
+}
+
+/* === Touch acceleration === */
+let isTouching = false;
+
+// ускорение при удержании пальца
+canvas.addEventListener('touchstart', ()=>{ isTouching = true; }, {passive:true});
+canvas.addEventListener('touchend', ()=>{ isTouching = false; }, {passive:true});
+canvas.addEventListener('mousedown', ()=>{ isTouching = true; });
+canvas.addEventListener('mouseup', ()=>{ isTouching = false; });
+
+/* ========== onGameOver (non-blocking, fire-and-forget) ========== */
+function onGameOver(){
+  gameOver = true;
+  gameStarted = false;
+  gameOverControls.style.display = 'flex';
+  startOverlay.style.display = 'none';
+  if (timerId){ clearTimeout(timerId); timerId = null; }
+
+  // сразу блокируем дальнейший спавн (до рестарта)
+  spawningPaused = true;
+  bombNextSpawnAt = Infinity;
+  wallNextSpawnAt = Infinity;
+
+    // отменяем любое отложенное превращение preview -> walls
+  if (wallPreviewActivateTimeoutId) {
+    clearTimeout(wallPreviewActivateTimeoutId);
+    wallPreviewActivateTimeoutId = null;
+  }
+  previewWalls = [];
+
+  try {
+    const t0 = performance.now();
+    submitScoreJSONP({ username: getTgUsername() || 'Игрок', score: scoreVar, tg_id: getTgId() || '' })
+      .then(res => {
+        console.log('submitScoreJSONP OK', res, 'ms=', Math.round(performance.now()-t0));
+      })
+      .catch(err => {
+        console.warn('submitScoreJSONP ERR', err, 'ms=', Math.round(performance.now()-t0));
+      });
+  } catch(e){
+    console.warn('onGameOver send failed sync', e);
+  }
+}
+
+function performStep() {
+  // вычисляем новую голову
+  const headGX = (snake[0].x + dx + COLS) % COLS;
+  const headGY = (snake[0].y + dy + ROWS) % ROWS;
+
+  // проверяем столкновение с собой
+  if (snake.some((s, i) => i > 0 && s.x === headGX && s.y === headGY)) {
+    onGameOver();
+    return;
+  }
+
+  // 💣 столкновение с бомбой
+if (bomb && headGX === bomb.x && headGY === bomb.y) {
+  onGameOver();
+  return;
+}
+
+  snake.unshift(createSegment(headGX, headGY));
+
+  let ateAny = false;
+
+  // поедание доп. еды (лак, hairspray)
+  if (
+    extraFood &&
+    headGX >= extraFood.x && headGX < extraFood.x + extraFood.w &&
+    headGY >= extraFood.y && headGY < extraFood.y + extraFood.h
+  ) {
+    scoreVar += extraFood.points;
+    totalEaten++;
+    eatenSinceSpeedup++;
+    spawnParticlesAt(extraFood.x, extraFood.y, extraFood.w, extraFood.h, 'hairspray');
+    extraFood = null;
+    ateAny = true;
+  }
+
+  // поедание обычной еды
+  if (
+    !ateAny &&
+    food &&
+    headGX >= food.x && headGX < food.x + food.w &&
+    headGY >= food.y && headGY < food.y + food.h
+  ) {
+    scoreVar += food.points;
+    totalEaten++;
+    eatenSinceSpeedup++;
+    spawnParticlesAt(food.x, food.y, food.w, food.h, food.cat);
+    pendingHairspray = Math.random() < 0.10;
+    placeFood();
+    ateAny = true;
+  }
+
+// всегда удаляем хвост — рост добавляется вручную
+snake.pop();
+
+// 🌱 Рост тела каждые 5 плодов (один раз)
+if (ateAny && totalEaten % 5 === 0 && totalEaten !== lastGrowthEaten) {
+  const last = snake[snake.length - 1];
+  snake.push(createSegment(last.x, last.y));
+  lastGrowthEaten = totalEaten;
+  console.log('🌿 Snake grew! totalEaten =', totalEaten);
+}
+
+  // ⚡ Ускорение каждые 3 плода
+  if (eatenSinceSpeedup >= 3) {
+    stepDelay = Math.max(25, Math.round(stepDelay * 0.97));
+    eatenSinceSpeedup = 0;
+    console.log('⚡ Speed up! stepDelay =', stepDelay);
+  }
+
+  // столкновение со стенами
+  for (const w of walls) {
+    if (w.cells.some(([wx, wy]) => wx === headGX && wy === headGY)) {
+      onGameOver();
+      return;
+    }
+  }
+
+  // если змейка попадает под активацию стены — смерть
+  if (previewWalls.length > 0) {
+    const aboutToActivate = performance.now() - wallPreviewAt >= 1900;
+    if (aboutToActivate) {
+      for (const w of previewWalls) {
+        for (const [wx, wy] of w.cells) {
+          if (snake.some(s => s.x === wx && s.y === wy)) {
+            onGameOver();
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  scheduleNextStep();
+}
+
+function scheduleNextStep(){
+  if (timerId) clearTimeout(timerId);
+  // при удержании пальца — 30% быстрее => delay * 0.7
+  const actualDelay = isTouching ? Math.max(25, Math.round(stepDelay * 0.7)) : stepDelay;
+  timerId = setTimeout(performStep, actualDelay);
+}
+
+/* ========== Input: keyboard, touch, start ========= */
+function setDir(nx, ny){ if (nx === -dx && ny === -dy) return; dx = nx; dy = ny; }
+window.addEventListener('keydown', e=>{ if (e.key==='ArrowUp') setDir(0,-1); else if (e.key==='ArrowDown') setDir(0,1); else if (e.key==='ArrowLeft') setDir(-1,0); else if (e.key==='ArrowRight') setDir(1,0); });
+
+let tsx=0, tsy=0, swiping=false;
+canvas.addEventListener('touchstart', e=>{ const t=e.touches[0]; tsx=t.clientX; tsy=t.clientY; swiping=true; if (!gameStarted && !gameOver && firstBoot) startGame(); }, { passive:true });
+canvas.addEventListener('touchmove', e=>{ if(!swiping) return; const t=e.touches[0]; const dxs=t.clientX-tsx, dys=t.clientY-tsy; const TH = Math.max(18, tileSize * 0.18); if (Math.abs(dxs) < TH && Math.abs(dys) < TH) return; if (Math.abs(dxs) > Math.abs(dys)){ if (dxs>0) setDir(1,0); else setDir(-1,0); } else { if (dys>0) setDir(0,1); else setDir(0,-1); } swiping=false; }, { passive:true });
+canvas.addEventListener('touchend', e=>{ swiping=false; }, { passive:true });
+
+startOverlay.addEventListener('pointerdown', e=>{ e.preventDefault(); if (!gameStarted && !gameOver && firstBoot) { startGame(); firstBoot = false; } });
+canvas.addEventListener('pointerdown', e=>{ if (!gameStarted && !gameOver && firstBoot){ startGame(); firstBoot = false; } });
+
+function startGame(){ if (gameStarted) return; gameStarted = true; gameOver = false; startOverlay.style.display='none'; gameOverControls.style.display='none'; if (timerId) clearTimeout(timerId); timerId = setTimeout(performStep, stepDelay); requestAnimationFrame(renderLoop); }
+
+/* ========== Restart & Leaderboard UI ========== */
+btnRestart.addEventListener('click', ()=>{ firstBoot = false; initGame(false); startGame(); });
+btnShare.addEventListener('click', async ()=>{ lbList.innerHTML=''; lbLoading.style.display='block'; lbModal.hidden = false; try{ const data = await fetchLeaderboardJSONP(); const top = (data.top || []).slice(0,10); lbList.innerHTML=''; top.forEach((row, idx)=>{ const li=document.createElement('li'); li.className='lb-item'; if (idx<5) li.classList.add('lb-top5'); li.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;"><span>#${idx+1} ${row.username || 'Игрок'}</span><strong>${row.score}</strong></div>`; lbList.appendChild(li); }); }catch(e){ lbList.innerHTML = '<li style="padding:8px;color:#a00">Не удалось загрузить таблицу лидеров.</li>'; console.warn(e); } finally{ lbLoading.style.display='none'; } });
+lbClose.addEventListener('click', ()=>{ lbModal.hidden = true; });
+
+/* ========== JSONP helpers for GAS (no CORS issues) ========== */
+function submitScoreJSONP({ username, score, tg_id }){
+  return new Promise((resolve, reject) => {
+    const cbName = '__hp_submit_cb_' + Date.now() + '_' + Math.floor(Math.random()*9999);
+    window[cbName] = function(resp){ try{ resolve(resp); } finally { delete window[cbName]; script.remove(); } };
+    const params = new URLSearchParams({ username: username, score: String(score), tg_id: tg_id || '' });
+    const script = document.createElement('script');
+    script.src = LB_URL + '?' + params.toString() + '&callback=' + cbName;
+    script.onerror = function(){ delete window[cbName]; script.remove(); reject(new Error('JSONP send failed')); };
+    document.body.appendChild(script);
+  });
+}
+function fetchLeaderboardJSONP(){
+  return new Promise((resolve, reject) => {
+    const cbName = '__hp_top_cb_' + Date.now() + '_' + Math.floor(Math.random()*9999);
+    window[cbName] = function(resp){ try{ resolve(resp); } finally { delete window[cbName]; script.remove(); } };
+    const script = document.createElement('script');
+    script.src = LB_URL + '?callback=' + cbName;
+    script.onerror = function(){ delete window[cbName]; script.remove(); reject(new Error('JSONP fetch failed')); };
+    document.body.appendChild(script);
+  });
+}
+
+/* ========== warmLb(): прогрев GAS (уменьшает cold start) ========== */
+function warmLb(){
+  try {
+    const s = document.createElement('script');
+    s.src = LB_URL + '?_warm=1';
+    s.async = true;
+    s.onload = () => { s.remove(); };
+    s.onerror = () => { s.remove(); };
+    document.body.appendChild(s);
+  } catch(e){
+    console.warn('warmLb failed', e);
+  }
+}
+
+/* ========== Boot: preload all assets, fill imagesByCategory, then initGame/start ========== */
+async function boot(){
+  resizeCanvas();
+  loadingProgress.style.width = '0%';
+
+  try{
+    const results = await preloadAllAssets((loaded, total, base, ok)=>{
+      const pct = Math.round(loaded / total * 100);
+      loadingProgress.style.width = pct + '%';
+    });
+
+    // assign images into categories
+    for (const k in categoryConfig) imagesByCategory[k] = [];
+    hairsprayImages = [];
+    for (const base in results){
+      const img = results[base];
+      if (!img) continue;
+      if (base === 'golova') headImg = img;
+      else if (base === 'telo1') bodyImg = img;
+      else if (base === 'telo2') tailImg = img;
+      else if (base === 'flower') flowerImg = img;
+      else if (base === 'kust') kustImg = img;
+      else if (base === 'bomba') bombaImg = img;
+
+      for (const k in categoryConfig){
+        if (base.startsWith(categoryConfig[k].prefix)) imagesByCategory[k].push(img);
+      }
+      if (base.startsWith(hairsprayConfig.prefix)) hairsprayImages.push(img);
+    }
+
+    loadingProgress.style.width = '100%';
+
+    warmLb();
+
+    setTimeout(()=>{ loadingOverlay.style.display = 'none'; }, 200);
+    initGame(true);
+    requestAnimationFrame(renderLoop);
+  } catch(err){
+    console.error('Preload failed', err);
+    loadingOverlay.style.display = 'flex';
+    loadingProgress.style.width = '0%';
+    alert('Ошибка загрузки ассетов. Проверь, что все файлы лежат в репозитории и имеют нижний регистр. Обнови страницу.');
+  }
+}
+
+/* ========== Telegram helper ========== */
+(function tgReady(){ try{ if (Telegram?.WebApp){ Telegram.WebApp.ready(); Telegram.WebApp.expand?.(); } }catch(e){} })();
+function getTgUser(){ const u = Telegram?.WebApp?.initDataUnsafe?.user; return u || null; }
+function getTgId(){ const u = getTgUser(); return u?.id ? String(u.id) : ''; }
+function getTgUsername(){ const u = getTgUser(); if (!u) return ''; if (u.username) return '@'+u.username; const fn = u.first_name || '', ln = u.last_name || ''; const combo = (fn + ' ' + ln).trim(); return combo || 'Игрок'; }
+
+/* ========== Helpers exposure for debug ========== */
+window._hp = { initGame, startGame, getState(){ return { tileSize, COLS, ROWS, canvasW, canvasH, gameStarted, gameOver, scoreVar }; }, ASSET_BASES };
+
+/* ========== Start boot ========== */
+resizeCanvas();
+boot();
+
+</script>
+</body>
+</html>
